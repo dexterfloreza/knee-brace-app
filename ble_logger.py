@@ -1,48 +1,69 @@
-#include <BLEDevice.h>
-#include <BLEServer.h>
-#include <BLEUtils.h>
-#include <BLE2902.h>
+import asyncio
+from bleak import BleakClient, BleakScanner
+import csv
+from datetime import datetime
 
-#define SERVICE_UUID        "6E400001-B5A3-F393-E0A9-E50E24DCCA9E"
-#define CHARACTERISTIC_UUID "6E400003-B5A3-F393-E0A9-E50E24DCCA9E"
+DEVICE_NAME = "ESP32-SensorHub"
 
-BLECharacteristic* pCharacteristic;
-bool deviceConnected = false;
+csv_filename = f"session_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+csv_file = open(csv_filename, mode='w', newline='')
+csv_writer = csv.writer(csv_file)
+csv_writer.writerow(["Timestamp", "Yaw", "Pitch", "Roll", "Flex", "FSR"])
 
-class ServerCallbacks : public BLEServerCallbacks {
-  void onConnect(BLEServer* pServer) {
-    deviceConnected = true;
-  }
-  void onDisconnect(BLEServer* pServer) {
-    deviceConnected = false;
-    BLEDevice::startAdvertising();
-  }
-};
+def handle_notification(handle, data):
+    try:
+        decoded = data.decode("utf-8").strip()
+        print(f"🔹 {decoded}")
+        parts = decoded.split(",")
+        if len(parts) == 5:
+            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+            csv_writer.writerow([timestamp] + parts)
+    except Exception as e:
+        print(f"⚠️ Error decoding: {e}")
 
-void setup() {
-  Serial.begin(115200);
-  BLEDevice::init("ESP32-SensorHub");
-  BLEServer* pServer = BLEDevice::createServer();
-  pServer->setCallbacks(new ServerCallbacks());
+async def main():
+    print("🔍 Scanning for ESP32...")
+    devices = await BleakScanner.discover()
 
-  BLEService* pService = pServer->createService(SERVICE_UUID);
-  pCharacteristic = pService->createCharacteristic(
-    CHARACTERISTIC_UUID,
-    BLECharacteristic::PROPERTY_NOTIFY
-  );
-  pCharacteristic->addDescriptor(new BLE2902());  // This fixes the WinError
+    target = None
+    for d in devices:
+        if d.name and DEVICE_NAME in d.name:
+            target = d
+            break
 
-  pService->start();
-  BLEAdvertising* pAdvertising = BLEDevice::getAdvertising();
-  pAdvertising->addServiceUUID(SERVICE_UUID);
-  BLEDevice::startAdvertising();
-}
+    if not target:
+        print("❌ ESP32 device not found.")
+        return
 
-void loop() {
-  if (deviceConnected) {
-    String data = "12.34,56.78,90.12,1234,5678";  // Replace with sensor data
-    pCharacteristic->setValue(data.c_str());
-    pCharacteristic->notify();
-    delay(100);  // 10 Hz
-  }
-}
+    print(f"✅ Found {DEVICE_NAME} at {target.address}")
+
+    async with BleakClient(target.address) as client:
+        print("🔗 Connected. Discovering services...")
+        await client.get_services()
+
+        notify_char = None
+        print("\n🧬 Available Notify Characteristics:")
+        for service in client.services:
+            for char in service.characteristics:
+                if "notify" in char.properties:
+                    print(f"👉 {char.uuid} in service {service.uuid}")
+                    if not notify_char:
+                        notify_char = char
+
+        if not notify_char:
+            print("❌ No notify-capable characteristic found.")
+            return
+
+        print(f"\n📡 Subscribing to: {notify_char.uuid}\n")
+        await client.start_notify(notify_char.uuid, handle_notification)
+
+        try:
+            while True:
+                await asyncio.sleep(1)
+        except KeyboardInterrupt:
+            print("🛑 Stopping...")
+            await client.stop_notify(notify_char.uuid)
+            csv_file.close()
+            print(f"💾 Data saved to {csv_filename}")
+
+asyncio.run(main())
