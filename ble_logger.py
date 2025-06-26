@@ -46,10 +46,11 @@ async def main():
             while True:
                 await asyncio.sleep(1)
         except KeyboardInterrupt:
-            print("\n🛑 Stopping...")
+            print("\n🛑 Ctrl+C detected, stopping notifications...")
             await client.stop_notify(CHARACTERISTIC_UUID)
+        finally:
             csv_file.close()
-            print(f"💾 Data saved to {csv_filename}")
+            print(f"💾 File saved as {csv_filename}")
 
 if __name__ == "__main__":
     asyncio.run(main())
