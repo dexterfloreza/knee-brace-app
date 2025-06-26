@@ -3,7 +3,9 @@
 #include <BLEDevice.h>
 #include <BLEUtils.h>
 #include <BLEServer.h>
+#include <BLE2902.h>  // REQUIRED for notifications to work on Windows
 
+// BLE UUIDs (NUS or custom — up to you, works fine here)
 #define SERVICE_UUID        "6E400001-B5A3-F393-E0A9-E50E24DCCA9E"
 #define CHARACTERISTIC_UUID "6E400003-B5A3-F393-E0A9-E50E24DCCA9E"
 
@@ -21,6 +23,7 @@ class ServerCallbacks : public BLEServerCallbacks {
     deviceConnected = true;
     Serial.println("✅ BLE device connected.");
   }
+
   void onDisconnect(BLEServer* pServer) {
     deviceConnected = false;
     Serial.println("❌ BLE device disconnected.");
@@ -51,16 +54,20 @@ void setup() {
   pServer->setCallbacks(new ServerCallbacks());
 
   BLEService *pService = pServer->createService(SERVICE_UUID);
+
+  // ✅ Use NOTIFY only (REMOVE WRITE), add BLE2902
   pCharacteristic = pService->createCharacteristic(
     CHARACTERISTIC_UUID,
-    BLECharacteristic::PROPERTY_NOTIFY | BLECharacteristic::PROPERTY_WRITE
+    BLECharacteristic::PROPERTY_NOTIFY
   );
+  pCharacteristic->addDescriptor(new BLE2902());  // <- Required for Windows BLE
+
   pService->start();
 
   BLEAdvertising *pAdvertising = BLEDevice::getAdvertising();
   pAdvertising->addServiceUUID(SERVICE_UUID);
   pAdvertising->setScanResponse(true);
-  pAdvertising->setMinPreferred(0x06);
+  pAdvertising->setMinPreferred(0x06);  // Android compatibility
   pAdvertising->setMinPreferred(0x12);
   BLEDevice::startAdvertising();
 
