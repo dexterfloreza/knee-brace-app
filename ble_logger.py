@@ -1,49 +1,35 @@
-#include <BLEDevice.h>
-#include <BLEServer.h>
-#include <BLEUtils.h>
-#include <BLE2902.h>
+from bleak import BleakClient, BleakScanner
+import asyncio
 
-#define SERVICE_UUID        "6E400001-B5A3-F393-E0A9-E50E24DCCA9E"
-#define CHARACTERISTIC_UUID "6E400003-B5A3-F393-E0A9-E50E24DCCA9E"
+ADDRESS = None  # We'll scan for this
+DEVICE_NAME = "ESP32-SensorHub"
+SERVICE_UUID = "6E400001-B5A3-F393-E0A9-E50E24DCCA9E"
+CHARACTERISTIC_UUID = "6E400003-B5A3-F393-E0A9-E50E24DCCA9E"
 
-BLECharacteristic *pCharacteristic;
-bool deviceConnected = false;
+def notification_handler(_, data):
+    print("🔹", data.decode().strip())
 
-class ServerCallbacks : public BLEServerCallbacks {
-  void onConnect(BLEServer* pServer) {
-    deviceConnected = true;
-  }
+async def run():
+    global ADDRESS
+    print("🔍 Scanning for device...")
+    devices = await BleakScanner.discover()
+    for d in devices:
+        if d.name == DEVICE_NAME:
+            ADDRESS = d.address
+            break
 
-  void onDisconnect(BLEServer* pServer) {
-    deviceConnected = false;
-    BLEDevice::startAdvertising();
-  }
-};
+    if not ADDRESS:
+        print("❌ Device not found")
+        return
 
-void setup() {
-  Serial.begin(115200);
-  BLEDevice::init("ESP32-SensorHub");
-  BLEServer *pServer = BLEDevice::createServer();
-  pServer->setCallbacks(new ServerCallbacks());
+    async with BleakClient(ADDRESS) as client:
+        print(f"✅ Connected to {DEVICE_NAME}")
+        await client.start_notify(CHARACTERISTIC_UUID, notification_handler)
+        try:
+            while True:
+                await asyncio.sleep(1)
+        except KeyboardInterrupt:
+            print("🛑 Disconnecting...")
+            await client.stop_notify(CHARACTERISTIC_UUID)
 
-  BLEService *pService = pServer->createService(SERVICE_UUID);
-  pCharacteristic = pService->createCharacteristic(
-    CHARACTERISTIC_UUID,
-    BLECharacteristic::PROPERTY_NOTIFY
-  );
-
-  pCharacteristic->addDescriptor(new BLE2902());
-
-  pService->start();
-  BLEAdvertising *pAdvertising = BLEDevice::getAdvertising();
-  pAdvertising->addServiceUUID(SERVICE_UUID);
-  BLEDevice::startAdvertising();
-}
-
-void loop() {
-  if (deviceConnected) {
-    pCharacteristic->setValue("12.34,56.78,90.12,1234,5678");
-    pCharacteristic->notify();
-    delay(100); // 10 Hz
-  }
-}
+asyncio.run(run())
