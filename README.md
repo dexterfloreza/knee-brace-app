@@ -1,4 +1,4 @@
-# Knee Brace App
+# Multi-Sensor Wearable Knee Brace System
 This project is a mobile and microcontroller-based knee brace monitoring system. It collects sensor data (yaw, pitch, roll, flexion, pressure), processes it on an ESP32, and streams the data via BLE to a client application. The goal is to support rehabilitation, joint tracking, and clinical intervention through real-time alerts and historical analysis.
 
 ## System Architecture
